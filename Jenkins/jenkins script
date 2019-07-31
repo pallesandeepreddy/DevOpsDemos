@@ -1,0 +1,365 @@
+#!groovy
+
+pipeline
+{
+	agent any
+	triggers {
+        cron('0 22 * * *') // every night 10 pm
+    }
+	parameters {
+        // // if want to ask yes-no type question then use below
+        	// //choice(choices: 'yes\nno', description: 'Are you sure you want to execute this test?', name: 'run_test_only')
+        	// //choice(choices: 'yes\nno', description: 'Archived war?', name: 'archive_war')
+
+        // // database deployment db details
+            //string(defaultValue: "base_version", description: 'Database user name', name: 'db_user')
+            //string(defaultValue: "B1a2s3e_version", description: 'Database passowrd', name: 'db_password')
+            //string(defaultValue: "192.168.21.163", description: 'Database host', name: 'db_host')
+            //string(defaultValue: "1521", description: 'Database port', name: 'db_port')
+            //string(defaultValue: "testing", description: 'Database servicename', name: 'db_servicename')
+
+        // // pom file required parameter
+            // //string(defaultValue: "com.isg", description: 'POM groupId tag value', name: 'groupId')
+            // //string(defaultValue: "FeeManagement", description: 'POM artifactId tag value', name: 'artifactId')
+            // //string(defaultValue: "0.0.1-SNAPSHOT", description: 'POM version tag value', name: 'version')
+            // //string(defaultValue: "4.0.0", description: 'POM model version tag value', name: 'modelVersion')
+            // //string(defaultValue: "MerchantOnboarding", description: 'POM name tag value', name: 'name')
+
+        // send mail details
+        	string(defaultValue: "yogeshkharade@insolutionsglobal.com, bapuraos@insolutionsglobal.com", description: 'Send job notifications to this email', name: 'mail_to')
+    }
+
+	environment
+    {
+
+     // sonar login details
+     	 sonar_user = "admin"
+     	 sonar_password = "Asdf12#\$"
+     	 sonar_projectKey_for_accesscontrol = "AccessControl"
+     	 sonar_projectKey_for_maps = "Maps"
+
+    }
+
+	tools
+	{
+		maven 'mymaven'
+		jdk 'myjava'
+	}
+
+	stages
+	{
+		// -- - Clean workspace
+			stage('Cleanup workspace')
+			{
+				steps
+				{
+					sh '''#!/bin/bash
+		                    echo "current working dir - $WORKSPACE"
+		                    rm -rf $WORKSPACE/*
+		                '''
+		        }
+         	}
+		// -- - Pull multiple repos
+		   stage('Checkout AccessControl App Product')
+			{
+				steps
+				{
+		    		dir('1_app_accesscontrol_repo')
+		    		{ git url: 'http://isgadmin@192.168.83.132:3000/GITeaTest/AccessControl.git', credentialsId: 'c5d6802e-31ec-479d-8b39-78d3a09036c1' }
+		    	}
+		    }
+			stage('Checkout Maps Base App Product')
+			{
+				steps
+				{
+		    		dir('2_app_maps_base_repo')
+		    		{ git url: 'http://isgadmin@192.168.83.132:3000/GITeaTest/Maps.git', credentialsId: 'c5d6802e-31ec-479d-8b39-78d3a09036c1' }
+		    	}
+		    }
+		    //stage('Checkout Maps Customize App Product')
+			//{
+		    //	steps
+		    //	{
+		    //		dir('3_app_maps_customization_repo')
+		    //		//{ git url: 'http://isgadmin@192.168.83.132:3000/DevOps_14/MEOB_WestPac_App.git', credentialsId: 'c5d6802e-31ec-479d-8b39-78d3a09036c1' }
+		    //	}
+		    //}
+		    stage('Checkout project Configuration files')
+			{
+				steps
+				{
+		    		dir('4_app_project_config_repo')
+		    		{ git url: 'http://isgadmin@192.168.83.132:3000/Projects/Westpac.git', credentialsId: 'c5d6802e-31ec-479d-8b39-78d3a09036c1' }
+		    	}
+		    }
+		// -- - Individual maven build
+				stage ('Build AccessControl project')
+				{
+					steps
+					{
+						dir("1_app_accesscontrol_repo")
+						{
+							sh 'mvn compile'
+							// //sh 'mvn package'
+						}
+					}
+	    		}
+	    		stage ('Build Maps project')
+				{
+					steps
+					{
+						dir("2_app_maps_base_repo")
+						{
+							sh 'mvn compile'
+						}
+					}
+	    		}
+		// -- - Maven PMD
+			stage ('AccessControl PMD')
+			{
+				steps
+				{
+					dir("1_app_accesscontrol_repo")
+					{
+						sh 'mvn -P metrics pmd:pmd'
+						pmd canComputeNew: false, defaultEncoding: '', healthy: '', pattern: 'target/pmd.xml', unHealthy: ''
+					}
+				}
+    		}
+    		stage ('Maps PMD')
+			{
+				steps
+				{
+					dir("2_app_maps_base_repo")
+					{
+						sh 'mvn -P metrics pmd:pmd'
+						pmd canComputeNew: false, defaultEncoding: '', healthy: '', pattern: 'target/pmd.xml', unHealthy: ''
+					}
+				}
+    		}
+    	// -- - Code Coverage
+			stage ('AccessControl Code Coverage - Metric Check')
+			{
+				steps
+				{
+					dir("1_app_accesscontrol_repo")
+					{
+						sh 'mvn cobertura:cobertura -Dcobertura.report.format=xml'
+						cobertura autoUpdateHealth: false, autoUpdateStability: false, coberturaReportFile: 'target/site/cobertura/coverage.xml', conditionalCoverageTargets: '70, 0, 0', failUnhealthy: false, failUnstable: false, lineCoverageTargets: '80, 0, 0', maxNumberOfBuilds: 0, methodCoverageTargets: '80, 0, 0', onlyStable: false, sourceEncoding: 'ASCII', zoomCoverageChart: false
+					}
+				}
+    		}
+    		stage ('Maps Code Coverage - Metric Check')
+			{
+				steps
+				{
+					dir("2_app_maps_base_repo")
+					{
+						sh 'mvn cobertura:cobertura -Dcobertura.report.format=xml'
+						cobertura autoUpdateHealth: false, autoUpdateStability: false, coberturaReportFile: 'target/site/cobertura/coverage.xml', conditionalCoverageTargets: '70, 0, 0', failUnhealthy: false, failUnstable: false, lineCoverageTargets: '80, 0, 0', maxNumberOfBuilds: 0, methodCoverageTargets: '80, 0, 0', onlyStable: false, sourceEncoding: 'ASCII', zoomCoverageChart: false
+					}
+				}
+    		}
+		// -- - Sonar scan
+			stage ('AccessControl Code Review(Sonar)')
+			{
+				steps
+				{
+					dir("1_app_accesscontrol_repo")
+					{
+						sh '$SonarQube_Home/sonar-scanner -Dsonar.login=admin -Dsonar.host.url=http://192.168.83.157:9000 -Dsonar.login=${sonar_user} -Dsonar.password=${sonar_password} -Dsonar.projectKey=${sonar_projectKey_for_accesscontrol} -Dsonar.java.binaries=$WORKSPACE/1_app_accesscontrol_repo/target/classes -Dsonar.projectBaseDir=$WORKSPACE/1_app_accesscontrol_repo'
+					}
+				}
+    		}
+    		stage ('Maps Code Review(Sonar)')
+			{
+				steps
+				{
+					dir("2_app_maps_base_repo")
+					{
+						sh '$SonarQube_Home/sonar-scanner -Dsonar.login=admin -Dsonar.host.url=http://192.168.83.157:9000 -Dsonar.login=${sonar_user} -Dsonar.password=${sonar_password} -Dsonar.projectKey=${sonar_projectKey_for_maps} -Dsonar.java.binaries=$WORKSPACE/2_app_maps_base_repo/target/classes -Dsonar.projectBaseDir=$WORKSPACE/2_app_maps_base_repo'
+					}
+				}
+    		}
+    	// -- - JUnit Testing
+			stage ('AccessControl JUnit Testing')
+			{
+				steps
+				{
+					dir("1_app_accesscontrol_repo")
+					{
+						//sh 'mvn test-compile'
+						//sh 'mvn test'
+						//junit 'target/surefire-reports/*.xml'
+					}
+				}
+    		}
+    		stage ('Maps JUnit Testing')
+			{
+				steps
+				{
+					dir("2_app_maps_base_repo")
+					{
+						//sh 'mvn test-compile'
+						//sh 'mvn test'
+						//junit 'target/surefire-reports/*.xml'
+					}
+				}
+    		}
+    	// -- - QA Testing
+    		stage ('AccessControl QA Testing')
+			{
+				steps
+				{
+					dir("1_app_accesscontrol_repo")
+					{
+						//sh 'mvn test <QA code path>'
+					}
+				}
+    		}
+    		stage ('Maps QA Testing')
+			{
+				steps
+				{
+					dir("2_app_maps_base_repo")
+					{
+						//sh 'mvn test <QA code path>'
+					}
+				}
+    		}
+		// -- - Merge applications repos into "app_release"
+	    	stage('Merge AccessControl and Maps repo')
+			{
+	    		steps
+		    	{
+		    	    sh 'mkdir app_release'
+		    	    sh 'cd app_release'
+		    		//dir("app_release")
+					//{
+		    		sh('$JENKINS_HOME/tools/script/app_repo_merging.sh')
+		    			////////sh('$JENKINS_HOME/tools/script/app_pom_merging.sh ${groupId} ${artifactId} ${version} ${modelVersion} ${name}')
+		    		//}
+		    	}
+	    	}
+
+    	// -- - Maven Packaging
+			stage ('Package Complete project')
+			{
+				steps
+				{
+					dir("app_release")
+					{
+						sh 'mvn package'
+					}
+				}
+    		}
+    	// -- - Maven Deploying war
+			stage ('Deploy project on Archiva')
+			{
+				steps
+				{
+					dir("app_release")
+					{
+						sh 'mvn clean deploy'
+					}
+				}
+    		}	
+    		
+/////////////////////////////////////////////////////////////////////////////
+
+    	// Database release start
+
+    	// pull multiple repos
+			//stage('Checkout Access Control db Product')
+			//{
+			//	steps
+			//	{
+		    //		dir('0_db_accesscontrol_repo')
+		    //		//{ git url: '${db_accesscontrol_repo_0}', credentialsId: '${git_repo_login_credential_Id}' }
+		    //		{ git url: 'http://isgadmin@192.168.83.132:3000/DevOps_15/RBAC_Main_DB.git', credentialsId: 'c5d6802e-31ec-479d-8b39-78d3a09036c1' }
+		    //	}
+		    //}
+		    //stage('Checkout Maps Base db Product')
+			//{
+		    //	steps
+		    //	{
+		    //		dir('1_db_base_repo')
+		    //		//{ git url: '${db_base_repo_1}', credentialsId: '${git_repo_login_credential_Id}' }
+		    //		//{ git url: 'http://isgadmin@192.168.83.132:3000/DevOps_14/MEOB_Main_DB.git', credentialsId: 'c5d6802e-31ec-479d-8b39-78d3a09036c1' }
+		    //	}
+		    //}
+		    //stage('Checkout Maps Customize db Product')
+			//{
+		    //	steps
+		    //	{
+		    //		dir('2_db_customization_repo')
+		    //		//{ git url: '${db_customization_repo_2}', credentialsId: '${git_repo_login_credential_Id}' }
+			//		//{ git url: 'http://isgadmin@192.168.83.132:3000/DevOps_14/MEOB_WestPac_DB.git', credentialsId: 'c5d6802e-31ec-479d-8b39-78d3a09036c1' }
+		    //	}
+		    //}
+	    // combines database repos into "db_release" and then generate execute.sql release script
+	    	//stage('Create DB Deployment script')
+			//{
+	    	//	steps
+		    //	{
+		    //		sh('$JENKINS_HOME/tools/script/db_create_release_script.sh')
+		    //	}
+	    	//}
+	    // deploy execute.sql release script
+	    	//stage('Deploy DB Release')
+			//{
+	    	//	steps
+		    //	{
+		    //		sh('$JENKINS_HOME/tools/script/db_deploy.sh ${db_user} ${db_password} ${db_host} ${db_port} ${db_servicename}')
+		    //	}
+	    	//}
+	    // create release folder zip
+	    	//stage('Build DB Release')
+			//{
+	    	//	steps
+		    //	{
+		    //		sh('$JENKINS_HOME/tools/script/db_make_build.sh')
+		    //	}
+	    	//}
+	}
+	post
+     {
+         always
+         {
+             emailext attachLog: true, body: '''$DEFAULT_CONTENT<br/>
+
+            <br/>
+            Thanks and Regards,<br/>
+            Jenkins Admin<br/>
+            <br/>
+            --------------------------------------------------------------------<br/>
+            ''', mimeType: 'text/html', postsendScript: '$DEFAULT_POSTSEND_SCRIPT', presendScript: '$DEFAULT_PRESEND_SCRIPT', recipientProviders: [developers(), requestor()], subject: '$DEFAULT_SUBJECT', to: "${mail_to}"
+         }
+         success
+         {
+             emailext attachLog: true, body: '''$DEFAULT_CONTENT<br/>
+            <br/>
+            &emsp;Refer below sonar analysis result URL -<br/>
+            &emsp;${BUILD_LOG_REGEX, regex=" http:\\/\\/192\\.168\\.83\\.157:9000.*?$", linesBefore=0, linesAfter=0, maxMatches=5, showTruncatedLines=false, escapeHtml=true} <br/>
+            <br/>
+            Thanks and Regards,<br/>
+            Jenkins Admin<br/>
+            <br/>
+            --------------------------------------------------------------------<br/>
+            ''', mimeType: 'text/html', postsendScript: '$DEFAULT_POSTSEND_SCRIPT', presendScript: '$DEFAULT_PRESEND_SCRIPT', recipientProviders: [developers(), requestor()], subject: '$DEFAULT_SUBJECT', to: "${mail_to}"
+         }
+         failure
+         {
+             emailext attachLog: true, body: '''$DEFAULT_CONTENT<br/>
+            <br/>
+            &emsp;###########################<br/>
+            <br/>
+            &emsp;Error at - ${BUILD_LOG_REGEX, regex="^.*?ERROR.*?$", linesBefore=0, linesAfter=0, maxMatches=5, showTruncatedLines=false, escapeHtml=true}<br/>
+            <br/>
+            Thanks and Regards,<br/>
+            Jenkins Admin<br/>
+            <br/>
+            --------------------------------------------------------------------<br\\>''', mimeType: 'text/html', postsendScript: '$DEFAULT_POSTSEND_SCRIPT', presendScript: '$DEFAULT_PRESEND_SCRIPT', recipientProviders: [developers(), requestor()], subject: '$DEFAULT_SUBJECT', to: "${mail_to}"
+         }
+    }
+}
